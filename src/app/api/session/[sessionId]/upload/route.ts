@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sessions } from '../../sessions';
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "@/convex/_generated/api";
+
+const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
 export async function POST(
     request: NextRequest,
@@ -7,7 +10,9 @@ export async function POST(
 ) {
     const { sessionId } = await params;
 
-    const session = sessions.get(sessionId);
+    const session = await client.query(api.sessions.getSession, {
+        sessionId,
+    });
 
     if (!session) {
         return NextResponse.json({ error: 'Session not found' }, { status: 404 });
@@ -21,21 +26,37 @@ export async function POST(
             return NextResponse.json({ error: 'No image provided' }, { status: 400 });
         }
 
-        // Convert file to buffer
-        const bytes = await file.arrayBuffer();
-        const buffer = Buffer.from(bytes);
+        // Convert file to array buffer
+        const blob = await file.arrayBuffer();
 
-        // Store image in session
-        session.images.push({
+        // Get upload URL from Convex
+        const uploadUrl = await client.mutation(api.images.generateUploadUrl);
+
+        // Upload the file to Convex storage
+        const uploadResponse = await fetch(uploadUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': file.type },
+            body: blob,
+        });
+
+        const { storageId } = await uploadResponse.json();
+
+        // Store image metadata in database
+        await client.mutation(api.images.storeImage, {
+            sessionId,
             filename: file.name,
-            data: buffer,
+            storageId,
             contentType: file.type,
+        });
+
+        const images = await client.query(api.sessions.getSessionImages, {
+            sessionId,
         });
 
         return NextResponse.json({
             success: true,
             sessionId,
-            imageCount: session.images.length,
+            imageCount: images.length,
         });
     } catch (error) {
         console.error('Upload error:', error);
