@@ -4,13 +4,17 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 export async function POST(request: NextRequest) {
+    console.log('Extract-text API called');
     try {
         const formData = await request.formData();
         const file = formData.get('image') as File;
 
         if (!file) {
+            console.error('No image provided in request');
             return NextResponse.json({ error: 'No image provided' }, { status: 400 });
         }
+
+        console.log('Processing file:', file.name, 'Size:', file.size, 'Type:', file.type);
 
         // Convert file to base64
         const bytes = await file.arrayBuffer();
@@ -43,6 +47,8 @@ export async function POST(request: NextRequest) {
 
         const response = await result.response;
         const extractedText = response.text();
+
+        console.log('Text extraction successful. Length:', extractedText.length);
 
         return NextResponse.json({
             success: true,

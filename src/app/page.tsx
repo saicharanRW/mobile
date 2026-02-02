@@ -32,6 +32,7 @@ export default function Home() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isWaitingForCamera, setIsWaitingForCamera] = useState(false);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [pendingTextExtractionIds, setPendingTextExtractionIds] = useState<string[]>([]);
 
   const onFilesSelected = useCallback((filesList: FileList | null) => {
     if (!filesList) return;
@@ -137,6 +138,8 @@ export default function Home() {
   }
 
   async function extractTextFromImage(imageItem: UploadedImage) {
+    console.log('Starting text extraction for image:', imageItem.id);
+
     // Mark as extracting
     setImages((prev) => prev.map((img) =>
       img.id === imageItem.id ? { ...img, isExtracting: true } : img
@@ -146,14 +149,18 @@ export default function Home() {
       const form = new FormData();
       form.append("image", imageItem.file);
 
+      console.log('Making API call to /api/extract-text');
       const res = await fetch("/api/extract-text", { method: "POST", body: form });
 
       if (!res.ok) {
+        console.error('API call failed:', res.status, res.statusText);
         throw new Error(`Failed to extract text: ${res.statusText}`);
       }
 
       const data = await res.json() as { extractedText?: string };
       const extractedText = data.extractedText || "No text detected";
+
+      console.log('Text extracted successfully:', extractedText);
 
       // Update with extracted text
       setImages((prev) => prev.map((img) =>
@@ -239,10 +246,10 @@ export default function Home() {
             setIsWaitingForCamera(false);
             setCurrentSessionId(null);
 
-            // Extract text from new images
-            newImages.forEach((img) => {
-              void extractTextFromImage(img);
-            });
+            // Queue images for text extraction
+            // The useEffect hook will process them after state update completes
+            const newImageIds = newImages.map(img => img.id);
+            setPendingTextExtractionIds(newImageIds);
 
             // Analyze new images
             void analyzeBatch(newImages);
@@ -267,6 +274,27 @@ export default function Home() {
       }
     };
   }, []);
+
+  // Handle pending text extractions
+  useEffect(() => {
+    if (pendingTextExtractionIds.length === 0) return;
+
+    console.log('Processing pending text extractions:', pendingTextExtractionIds);
+
+    // Find images that need extraction
+    const imagesToExtract = images.filter(img =>
+      pendingTextExtractionIds.includes(img.id) && !img.extractedText && !img.isExtracting
+    );
+
+    if (imagesToExtract.length > 0) {
+      imagesToExtract.forEach(img => {
+        void extractTextFromImage(img);
+      });
+
+      // Clear processed IDs
+      setPendingTextExtractionIds([]);
+    }
+  }, [pendingTextExtractionIds, images]);
 
   return (
     <div className="min-h-screen w-full soft-gradient bg-fixed p-6 sm:p-10">
