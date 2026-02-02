@@ -10,6 +10,8 @@ type UploadedImage = {
   product: string;
   expiryDate: string; // YYYY-MM-DD
   status: "Valid" | "Expiring Soon" | "Expired";
+  extractedText?: string;
+  isExtracting?: boolean;
 };
 
 function computeStatus(dateISO: string): UploadedImage["status"] {
@@ -134,6 +136,42 @@ export default function Home() {
     }
   }
 
+  async function extractTextFromImage(imageItem: UploadedImage) {
+    // Mark as extracting
+    setImages((prev) => prev.map((img) =>
+      img.id === imageItem.id ? { ...img, isExtracting: true } : img
+    ));
+
+    try {
+      const form = new FormData();
+      form.append("image", imageItem.file);
+
+      const res = await fetch("/api/extract-text", { method: "POST", body: form });
+
+      if (!res.ok) {
+        throw new Error(`Failed to extract text: ${res.statusText}`);
+      }
+
+      const data = await res.json() as { extractedText?: string };
+      const extractedText = data.extractedText || "No text detected";
+
+      // Update with extracted text
+      setImages((prev) => prev.map((img) =>
+        img.id === imageItem.id
+          ? { ...img, extractedText, isExtracting: false }
+          : img
+      ));
+    } catch (error) {
+      console.error('Text extraction error:', error);
+      // Update with error message
+      setImages((prev) => prev.map((img) =>
+        img.id === imageItem.id
+          ? { ...img, extractedText: "Error extracting text", isExtracting: false }
+          : img
+      ));
+    }
+  }
+
   const handleCameraClick = useCallback(async () => {
     try {
       setIsWaitingForCamera(true);
@@ -200,6 +238,11 @@ export default function Home() {
             setImages((prev) => [...prev, ...newImages]);
             setIsWaitingForCamera(false);
             setCurrentSessionId(null);
+
+            // Extract text from new images
+            newImages.forEach((img) => {
+              void extractTextFromImage(img);
+            });
 
             // Analyze new images
             void analyzeBatch(newImages);
@@ -336,6 +379,7 @@ export default function Home() {
                       <th className="py-2 pr-4 font-medium">Product</th>
                       <th className="py-2 pr-4 font-medium">Expiry Date</th>
                       <th className="py-2 pr-4 font-medium">Status</th>
+                      <th className="py-2 pr-4 font-medium">Extracted Text</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -368,11 +412,25 @@ export default function Home() {
                             {img.status}
                           </span>
                         </td>
+                        <td className="py-3 pr-4 align-middle">
+                          <div className="max-w-xs">
+                            {img.isExtracting ? (
+                              <div className="flex items-center gap-2 text-white/70">
+                                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
+                                <span className="text-xs">Extracting...</span>
+                              </div>
+                            ) : (
+                              <div className="rounded-md border border-white/20 bg-white/10 px-3 py-2 text-xs text-white/90 backdrop-blur max-h-24 overflow-y-auto">
+                                {img.extractedText || "-"}
+                              </div>
+                            )}
+                          </div>
+                        </td>
                       </tr>
                     ))}
                     {filtered.length === 0 && (
                       <tr>
-                        <td className="py-6 text-white/70" colSpan={4}>No items yet. Upload images to see results.</td>
+                        <td className="py-6 text-white/70" colSpan={5}>No items yet. Upload images to see results.</td>
                       </tr>
                     )}
                   </tbody>
